@@ -31,7 +31,6 @@ body::before{content:"";position:fixed;inset:0;background:var(--logo) center/min
 </style><script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script>
-/* >>> HIER DEINE FIREBASE-DATEN EINTRAGEN (siehe ANLEITUNG.md) <<< */
 const FIREBASE_CONFIG={
   apiKey:"AIzaSyAbXJtZ3zMPPed3ycfLKZ6Z1j-BWj51pvg",
   authDomain:"lager-alex.firebaseapp.com",
@@ -51,7 +50,7 @@ const FIREBASE_CONFIG={
 const BUSSE=Array.from({length:8},(_,i)=>"Bus "+(i+1));
 const KENN=["RC280","RC290","RC270","RC240","RC889","RC250","Büro"],PW="Alex1";
 const TABS=[["stock","Bestand"],["out","Entnahme"],["ret","Rückgabe"],["in","Eingang"],["log","Verlauf"]];
-let tab="stock",inOK=false,inWho="",outBus="",outWho="",moves=[],store=null,mins={},msg="";
+let tab="stock",logOK=false,inOK=false,inWho="",outBus="",outWho="",moves=[],store=null,mins={},msg="";
 const $=s=>document.querySelector(s);
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const fmt=t=>new Date(t).toLocaleString("de-DE",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
@@ -127,6 +126,7 @@ function vForm(type){
   <div class="msg" id="msg">${esc(msg)}</div></div>`;
 }
 function vLog(){
+  if(!logOK)return'<div class="card"><b>🔒 Verlauf gesperrt</b><div class="mu" style="margin-top:6px">Der Verlauf wird sichtbar, sobald im Reiter „Eingang“ das Passwort eingegeben wurde.</div><button class="btn" id="gotoin">Zum Eingang</button></div>';
   const L=moves.filter(m=>m.type!=="base"&&!m.archived);
   if(!L.length)return'<div class="card mu">Noch keine Buchungen.</div>';
   return'<div class="card tw">'+L.slice(0,200).map(m=>`<div class="row"><div><b class="${m.type==="out"||m.qty<0?"out-t":"in-t"}">${m.type==="out"?"−":m.qty<0?"":"+"}${m.qty}</b> ${esc(m.unit||"Flaschen")} ${esc(m.item)}${m.exp?' <span class="low">⏰ nahe am Verfallsdatum</span>':""}${m.kisten?" ("+m.kisten+(m.kisten>1?" Kästen":" Kasten")+")":""}<div class="mu">${m.type==="out"?esc(m.bus)+" · ":m.type==="ret"?"Rückgabe "+esc(m.bus)+" · ":m.type==="korr"?"Bestandskorrektur · ":"Eingang · "}${esc(m.who||"–")} · ${fmt(m.ts)}</div></div><a href="#" data-del="${m.id}" class="mu" title="Löschen">✕</a></div>`).join("")+'</div><button class="btn out" id="reset">Verlauf zurücksetzen</button>';
@@ -163,8 +163,9 @@ function openKorr(){
 }
 function bind(){
   const kb=$("#korr");if(kb)kb.onclick=openKorr;
+  const gi=$("#gotoin");if(gi)gi.onclick=()=>{tab="in";msg="";render()};
   const ue=$("#useexp");if(ue)ue.onchange=()=>{$("#item").innerHTML=optsFor(ue.checked);$("#avail").textContent="";$("#unit").innerHTML=unitOpts("Flaschen")};
-  const ul=$("#unlock");if(ul){const t=()=>{if($("#pw").value===PW){inOK=true;msg="";document.activeElement.blur();render()}else{$("#msg").textContent="Falsches Passwort."}};ul.onclick=t;$("#pw").onkeydown=e=>{if(e.key==="Enter")t()}}
+  const ul=$("#unlock");if(ul){const t=()=>{if($("#pw").value===PW){inOK=true;logOK=true;msg="";document.activeElement.blur();render()}else{$("#msg").textContent="Falsches Passwort."}};ul.onclick=t;$("#pw").onkeydown=e=>{if(e.key==="Enter")t()}}
   
   const it=$("#item");
   if(it)it.oninput=it.onchange=()=>{const s=stock(),u=unitOf(it.value);$("#avail").textContent=tab==="ret"?"":it.value in s?"Aktuell im Lager: "+s[it.value]+" "+u:"";if(tab!=="in")$("#unit").innerHTML=unitOpts(it.value in s?u:"Flaschen");if(tab==="in"){const c=catOf(it.value)||presetCat(it.value);if(c)$("#cat").value=c}};
