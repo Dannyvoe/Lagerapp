@@ -80,7 +80,8 @@ async function init(){
   }
 }
 const CATS=["Getränke Alkoholfrei","Getränke Alkohol","Schnaps","Heißgetränke","Essen","Sonstiges"];
-const PRESETS={"Getränke Alkohol":["Bier Radeberger 0,33","Bier Sternquell 0,33","Bier Köstritzer Schw. 0,33","Bier Kulmbacher 0,33","Radler Löschzwerg 0,33","Sekt Medium","Sekt Rosé","Aperol Spritz"],"Getränke Alkoholfrei":["Wasser Still","Wasser Medium","Wasser Spritzig","Apfelschorle","Zitronenlimonade","Tonic","Coca Cola"]};
+const PRESETS={"Getränke Alkohol":["Bier Radeberger 0,33","Bier Sternquell 0,33","Bier Köstritzer Schw. 0,33","Bier Kulmbacher 0,33","Radler Löschzwerg 0,33","Sekt Medium","Sekt Rosé","Aperol Spritz"],"Getränke Alkoholfrei":["Wasser Still","Wasser Medium","Wasser Spritzig","Apfelschorle","Zitronenlimonade","Tonic","Coca Cola"],"Sonstiges":["Kaffeesahne","Zucker","Senf","Sprühsahne","Löffel","Servietten","Pappteller"]};
+const UNIT_ONLY={"Kaffeesahne":"Karton","Zucker":"Karton","Senf":"Karton"};
 function itemVal(){const v=$("#item").value;return v==="__new"?($("#newitem").value||"").trim():v.trim()}
 function itemOpts(c){if(!c)return'<option value="">– erst Kategorie wählen –</option>';const l=[...new Set([...(PRESETS[c]||[]),...Object.keys(stock()).filter(i=>!i.endsWith(RETSUF)&&catOf(i)===c)])].sort((a,b)=>a.localeCompare(b,"de"));return'<option value="">– Artikel wählen –</option>'+l.map(i=>`<option>${esc(i)}</option>`).join("")+'<option value="__new">+ Neuer Artikel …</option>'}
 function catSel(){return`<label>Kategorie</label><select id="cat"><option value="">– Kategorie wählen –</option>${CATS.map(c=>`<option>${c}</option>`).join("")}</select>`}
@@ -91,7 +92,7 @@ function expFlag(k){return k.endsWith(RETSUF)}
 function unitOf(item){const m=moves.find(x=>x.item===baseName(item)&&x.unit);return m?m.unit:"Flaschen"}
 function fmtQty(k,n){const u=unitOf(k);if(u!=="Flaschen"||n<20)return n+" "+u;const c=Math.floor(n/20),r=n%20;return c+(c>1?" Kästen":" Kasten")+(r?" + "+r+" Fl.":"")+' <span class="mu">('+n+" Flaschen)</span>"}
 function optsFor(ex){const s=stock();return'<option value="">– Artikel wählen –</option>'+Object.keys(s).sort().filter(i=>s[i]>0&&i.endsWith(RETSUF)===ex).map(i=>`<option value="${esc(i)}">${esc(i)} (${s[i]} ${unitOf(i)} auf Lager)</option>`).join("")}
-function unitOpts(base){return[[1,"Flaschen","Flaschen"],[20,"Kasten (20 Fl.)","Flaschen"],[1,"Stück","Stück"],[1,"Rollen","Rollen"],[1,"Packungen","Packungen"]].filter(u=>!base||u[2]===base).map(u=>`<option value="${u[0]}" data-b="${u[2]}">${u[1]}</option>`).join("")}
+function unitOpts(base){return[[1,"Flaschen","Flaschen"],[20,"Kasten (20 Fl.)","Flaschen"],[1,"Stück","Stück"],[1,"Rollen","Rollen"],[1,"Packungen","Packungen"],[1,"Karton","Karton"]].filter(u=>base?u[2]===base:u[2]!=="Karton").map(u=>`<option value="${u[0]}" data-b="${u[2]}">${u[1]}</option>`).join("")}
 function stock(){
   const s={};
   moves.forEach(m=>{const k=sk(m);s[k]=(s[k]||0)+(m.type==="out"?-m.qty:m.qty)});
@@ -108,7 +109,7 @@ function vStock(){
   const s=stock(),keys=Object.keys(s).sort((a,b)=>a.localeCompare(b,"de"));
   if(!keys.length)return'<div class="card mu">Noch keine Artikel. Erfasse zuerst einen Wareneingang.</div>';
   let lastC=null;return'<div class="card">'+keys.slice().sort((a,b)=>{const ia=CATS.indexOf(catOf(a)),ib=CATS.indexOf(catOf(b));return(ia<0?99:ia)-(ib<0?99:ib)||a.localeCompare(b,"de")}).map(k=>{const c=catOf(k),h=c!==lastC?(lastC=c,'<div class="mu" style="font-weight:700;text-transform:uppercase;letter-spacing:.04em;padding-top:10px">'+(c||"Ohne Kategorie")+'</div>'):"";const m=mins[k.replace(/\//g,"_")],low=m!=null&&s[k]<=m;
-    return h+`<div class="row" ${s[k]<=0?`style="background:rgba(250,204,21,.35);border-radius:8px;padding-left:8px;padding-right:8px"`:k.endsWith(RETSUF)?`style="background:rgba(${expFlag(k)?"239,68,68,.2":"245,158,11,.2"});border-radius:8px;padding-left:8px;padding-right:8px"`:""}><div><b>${esc(k)}</b>${expFlag(k)?" ⏰":""}<div class="mu">${m!=null?"Mindestbestand: "+m:""}<a href="#" data-min="${esc(k)}" style="color:var(--ac);margin-left:${m!=null?8:0}px">${m!=null?"ändern":"Mindestbestand setzen"}</a></div></div><div class="qty ${low?"low":""}">${fmtQty(k,s[k])}${low?" ⚠️":""}</div></div>`}).join("")+'</div>';
+    return h+`<div class="row" ${s[k]<=0?`style="background:rgba(250,204,21,.35);border-radius:8px;padding-left:8px;padding-right:8px"`:k.endsWith(RETSUF)?`style="background:rgba(${expFlag(k)?"239,68,68,.2":"245,158,11,.2"});border-radius:8px;padding-left:8px;padding-right:8px"`:""}><div><b>${esc(k)}</b>${expFlag(k)?" ⏰":""}<div class="mu">${m!=null?"Mindestbestand: "+m:""}${logOK?`<a href="#" data-min="${esc(k)}" style="color:var(--ac);margin-left:${m!=null?8:0}px">${m!=null?"ändern":"Mindestbestand setzen"}</a>`:""}</div></div><div class="qty ${low?"low":""}">${fmtQty(k,s[k])}${low?" ⚠️":""}</div></div>`}).join("")+'</div>';
 }
 function vForm(type){
   const s=stock(),items=Object.keys(s).sort();
@@ -168,10 +169,10 @@ function bind(){
   const ul=$("#unlock");if(ul){const t=()=>{if($("#pw").value===PW){inOK=true;logOK=true;msg="";document.activeElement.blur();render()}else{$("#msg").textContent="Falsches Passwort."}};ul.onclick=t;$("#pw").onkeydown=e=>{if(e.key==="Enter")t()}}
   
   const it=$("#item");
-  if(it)it.oninput=it.onchange=()=>{const s=stock(),u=unitOf(it.value);$("#avail").textContent=tab==="ret"?"":it.value in s?"Aktuell im Lager: "+s[it.value]+" "+u:"";if(tab!=="in")$("#unit").innerHTML=unitOpts(it.value in s?u:"Flaschen");if(tab==="in"){const c=catOf(it.value)||presetCat(it.value);if(c)$("#cat").value=c}};
+  if(it)it.oninput=it.onchange=()=>{const s=stock(),u=unitOf(it.value);$("#avail").textContent=tab==="ret"?"":it.value in s?"Aktuell im Lager: "+s[it.value]+" "+u:"";if(tab!=="in")$("#unit").innerHTML=unitOpts(UNIT_ONLY[it.value]||(it.value in s?u:"Flaschen"));if(tab==="in"){$("#unit").innerHTML=unitOpts(UNIT_ONLY[it.value]||null);const c=catOf(it.value)||presetCat(it.value);if(c)$("#cat").value=c}};
   const go=$("#go");
   const ct=$("#cat");
-  if(ct&&it){ct.onchange=()=>{it.innerHTML=itemOpts(ct.value);$("#newitem").style.display="none";$("#avail").textContent=""};
+  if(ct&&it){ct.onchange=()=>{it.innerHTML=itemOpts(ct.value);$("#unit").innerHTML=unitOpts(null);$("#newitem").style.display="none";$("#avail").textContent=""};
     const prev=it.onchange;it.onchange=()=>{prev();const nw=$("#newitem");nw.style.display=it.value==="__new"?"block":"none";if(it.value==="__new")nw.focus();const st=stock();if(it.value in st){const ix=[...$("#unit").options].findIndex(x=>x.dataset.b===unitOf(it.value));if(ix>=0)$("#unit").selectedIndex=ix}}}
   const rs=$("#reset");
   if(rs)rs.onclick=()=>{
@@ -196,6 +197,7 @@ function bind(){
     if(type!=="in"&&!KENN.includes($("#bus").value.trim()))return err("Ungültiges Kennzeichen.");
     if(type==="in"&&!who)return err("Bitte Namen eintragen.");
     if(!item||!(qty>0))return err("Bitte Artikel und Menge angeben.");
+    if(UNIT_ONLY[item]&&base!==UNIT_ONLY[item])return err("Dieser Artikel wird nur in "+UNIT_ONLY[item]+" geführt.");
     if(item in s&&unitOf(item)!==base)return err("Dieser Artikel wird in "+unitOf(item)+" geführt.");
     if(type==="in"&&!cat)return err("Bitte Kategorie wählen.");
     if(type==="in"&&catOf(item)&&catOf(item)!==cat)return err("Dieser Artikel gehört zur Kategorie „"+catOf(item)+"“.");
@@ -213,7 +215,7 @@ function bind(){
   };
   document.querySelectorAll("[data-del]").forEach(a=>a.onclick=async e=>{e.preventDefault();if(a.dataset.armed!=="1"){a.dataset.armed="1";a.textContent="Löschen?";a.style.color="var(--bad)";return}
     try{await store.del(a.dataset.del)}catch(x){}});
-  document.querySelectorAll("[data-min]").forEach(a=>a.onclick=async e=>{e.preventDefault();
+  document.querySelectorAll("[data-min]").forEach(a=>a.onclick=async e=>{e.preventDefault();if(!logOK)return;
     const k=a.dataset.min,v=prompt("Mindestbestand für "+k+":",mins[k.replace(/\//g,"_")]??"");if(v===null)return;
     const n=parseInt(v,10);if(isNaN(n))return;
     if(window._db)try{await window._db.collection("mins").doc(k.replace(/\//g,"_")).set({min:n})}catch(x){alert("Keine Berechtigung.")}
