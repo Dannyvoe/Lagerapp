@@ -10,7 +10,7 @@ body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.4 system-ui,-appl
 main{max-width:720px;margin:0 auto;padding:14px}
 h1{font-size:20px;margin:4px 0 12px}
 nav{display:flex;gap:6px;margin-bottom:14px}
-nav button{flex:1;padding:10px 4px;border:1px solid var(--bd);background:var(--card);color:var(--tx);border-radius:10px;font:inherit;font-size:13px}
+nav button{flex:1;min-width:0;padding:10px 2px;border:1px solid var(--bd);background:var(--card);color:var(--tx);border-radius:10px;font:inherit;font-size:12px}
 nav button.on{background:var(--ac);color:#fff;border-color:var(--ac)}
 .card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:14px;margin-bottom:12px}
 label{display:block;font-size:13px;color:var(--mu);margin:10px 0 4px}
@@ -48,9 +48,9 @@ const FIREBASE_CONFIG={
 </main>
 <script>
 const BUSSE=Array.from({length:8},(_,i)=>"Bus "+(i+1));
-const KENN=["RC280","RC290","RC270","RC240","RC889","RC250","Büro"],PW="Alex1";
-const TABS=[["stock","Bestand"],["out","Entnahme"],["ret","Rückgabe"],["in","Eingang"],["log","Verlauf"]];
-let tab="stock",logOK=false,inOK=false,inWho="",outBus="",outWho="",moves=[],store=null,mins={},msg="";
+const KENN=["RC280","RC290","RC270","RC240","RC889","RC250","Büro","Fremdveranstalter"],PW="Alex1";
+const TABS=[["stock","Bestand"],["out","Entnahme"],["ret","Rückgabe"],["in","Eingang"],["log","Verlauf"],["stat","Statistik"]];
+let tab="stock",statP="all",statB="",logOK=false,inOK=false,inWho="",outBus="",outWho="",moves=[],store=null,mins={},msg="";
 const $=s=>document.querySelector(s);
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const fmt=t=>new Date(t).toLocaleString("de-DE",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
@@ -60,6 +60,7 @@ function localStore(){
   let a=[];try{a=JSON.parse(localStorage.getItem("lager")||"[]")}catch(e){}
   moves=a;
   return{add:async m=>{m.id=Date.now()+""+Math.random();moves.unshift(m);try{localStorage.setItem("lager",JSON.stringify(moves))}catch(e){}render()},
+  clr:async id=>{moves.forEach(x=>{if(x.id===id)x.statCleared=true});try{localStorage.setItem("lager",JSON.stringify(moves))}catch(e){}render()},
   arch:async id=>{moves.forEach(x=>{if(x.id===id)x.archived=true});try{localStorage.setItem("lager",JSON.stringify(moves))}catch(e){}render()},
   del:async id=>{moves=moves.filter(x=>x.id!==id);try{localStorage.setItem("lager",JSON.stringify(moves))}catch(e){}render()}};
 }
@@ -69,7 +70,7 @@ async function init(){
   try{if(FIREBASE_CONFIG.apiKey&&!FIREBASE_CONFIG.apiKey.startsWith("HIER")){firebase.initializeApp(FIREBASE_CONFIG);db=firebase.firestore()}}catch(e){console.error(e)}
   if(db){
     const c=db.collection("moves");
-    store={add:m=>c.add(m),del:async id=>{try{await c.doc(id).delete()}catch(e){await c.doc(id).update({deleted:true})}},arch:id=>c.doc(id).update({archived:true})};
+    store={add:m=>c.add(m),del:async id=>{try{await c.doc(id).delete()}catch(e){await c.doc(id).update({deleted:true})}},arch:id=>c.doc(id).update({archived:true}),clr:id=>c.doc(id).update({statCleared:true})};
     c.orderBy("ts","desc").onSnapshot(s=>{moves=s.docs.map(d=>({id:d.id,...d.data()})).filter(m=>!m.deleted);render()},()=>{});
     db.collection("mins").onSnapshot(s=>{mins={};s.docs.forEach(d=>mins[d.id]=d.data().min);render()},()=>{});
     window._db=db;
@@ -81,6 +82,7 @@ async function init(){
 }
 const CATS=["Getränke Alkoholfrei","Getränke Alkohol","Schnaps","Heißgetränke","Essen","Sonstiges"];
 const PRESETS={"Getränke Alkohol":["Bier Radeberger 0,33","Bier Sternquell 0,33","Bier Köstritzer Schw. 0,33","Bier Kulmbacher 0,33","Radler Löschzwerg 0,33","Sekt Medium","Sekt Rosé","Aperol Spritz"],"Getränke Alkoholfrei":["Wasser Still","Wasser Medium","Wasser Spritzig","Apfelschorle","Zitronenlimonade","Tonic","Coca Cola"],"Sonstiges":["Kaffeesahne","Zucker","Senf","Sprühsahne","Löffel","Servietten","Pappteller"]};
+const KINDS={own:["Eigenbedarf","🍽️"],spoil:["Verfall","🗑️"],brk:["Bruch/Defekt","💥"]};
 const UNIT_ONLY={"Kaffeesahne":"Karton","Zucker":"Karton","Senf":"Karton"};
 function itemVal(){const v=$("#item").value;return v==="__new"?($("#newitem").value||"").trim():v.trim()}
 function itemOpts(c){if(!c)return'<option value="">– erst Kategorie wählen –</option>';const l=[...new Set([...(PRESETS[c]||[]),...Object.keys(stock()).filter(i=>!i.endsWith(RETSUF)&&catOf(i)===c)])].sort((a,b)=>a.localeCompare(b,"de"));return'<option value="">– Artikel wählen –</option>'+l.map(i=>`<option>${esc(i)}</option>`).join("")+'<option value="__new">+ Neuer Artikel …</option>'}
@@ -91,18 +93,23 @@ function catOf(i){const m=moves.find(x=>x.item===baseName(i)&&x.cat);return m?m.
 function expFlag(k){return k.endsWith(RETSUF)}
 function unitOf(item){const m=moves.find(x=>x.item===baseName(item)&&x.unit);return m?m.unit:"Flaschen"}
 function fmtQty(k,n){const u=unitOf(k);if(u!=="Flaschen"||n<20)return n+" "+u;const c=Math.floor(n/20),r=n%20;return c+(c>1?" Kästen":" Kasten")+(r?" + "+r+" Fl.":"")+' <span class="mu">('+n+" Flaschen)</span>"}
-function optsFor(ex){const s=stock();return'<option value="">– Artikel wählen –</option>'+Object.keys(s).sort().filter(i=>s[i]>0&&i.endsWith(RETSUF)===ex).map(i=>`<option value="${esc(i)}">${esc(i)} (${s[i]} ${unitOf(i)} auf Lager)</option>`).join("")}
+function groupedOpts(names,label){
+  const G={};names.forEach(n=>{const c=catOf(n)||presetCat(baseName(n))||"";(G[c]||(G[c]=[])).push(n)});
+  const rank=c=>c===""?99:(CATS.indexOf(c)<0?98:CATS.indexOf(c));
+  return Object.keys(G).sort((a,b)=>rank(a)-rank(b)).map(c=>`<optgroup label="${esc(c||"Ohne Kategorie")}">`+G[c].sort((a,b)=>a.localeCompare(b,"de")).map(n=>`<option value="${esc(n)}">${esc(label(n))}</option>`).join("")+"</optgroup>").join("");
+}
+function optsFor(ex){const s=stock();return'<option value="">– Artikel wählen –</option>'+groupedOpts(Object.keys(s).filter(i=>s[i]>0&&i.endsWith(RETSUF)===ex),n=>n+" ("+s[n]+" "+unitOf(n)+" auf Lager)")}
 function unitOpts(base){return[[1,"Flaschen","Flaschen"],[20,"Kasten (20 Fl.)","Flaschen"],[1,"Stück","Stück"],[1,"Rollen","Rollen"],[1,"Packungen","Packungen"],[1,"Karton","Karton"]].filter(u=>base?u[2]===base:u[2]!=="Karton").map(u=>`<option value="${u[0]}" data-b="${u[2]}">${u[1]}</option>`).join("")}
 function stock(){
   const s={};
-  moves.forEach(m=>{const k=sk(m);s[k]=(s[k]||0)+(m.type==="out"?-m.qty:m.qty)});
+  moves.forEach(m=>{if(m.type==="ret"&&KINDS[m.kind])return;const k=sk(m);s[k]=(s[k]||0)+(m.type==="out"?-m.qty:m.qty)});
   return s;
 }
 function render(){
-  $("#nav").innerHTML=TABS.map(([k,l])=>`<button class="${k===tab?"on":""}" data-t="${k}">${l}</button>`).join("");
+  $("#nav").innerHTML=TABS.filter(t=>logOK||(t[0]!=="log"&&t[0]!=="stat")).map(([k,l])=>`<button class="${k===tab?"on":""}" data-t="${k}">${l}</button>`).join("");
   document.querySelectorAll("#nav button").forEach(b=>b.onclick=()=>{if(tab!==b.dataset.t){inOK=false;inWho="";outBus="";outWho=""}tab=b.dataset.t;msg="";render()});
   const f=document.activeElement;if(f&&(f.tagName==="INPUT"||f.tagName==="SELECT")&&$("#view").contains(f))return;
-  $("#view").innerHTML=({stock:()=>vStock()+(Object.keys(stock()).length?'<button class="btn" id="korr" style="background:var(--mu)">Bestandskorrektur</button>':''),out:()=>vForm("out"),ret:()=>vForm("ret"),in:()=>vForm("in"),log:vLog})[tab]();
+  $("#view").innerHTML=({stock:()=>vStock()+(Object.keys(stock()).length?'<button class="btn" id="korr" style="background:var(--mu)">Bestandskorrektur</button>':''),out:()=>vForm("out"),ret:()=>vForm("ret"),in:()=>vForm("in"),log:vLog,stat:vStat})[tab]();
   bind();
 }
 function vStock(){
@@ -114,33 +121,154 @@ function vStock(){
 function vForm(type){
   const s=stock(),items=Object.keys(s).sort();
   const isOut=type!=="in";
-  if(!isOut&&!inOK)return'<div class="card"><b>Wareneingang</b><label>Passwort</label><input id="pw" type="password" autocomplete="off"><button class="btn" id="unlock">Entsperren</button><div class="msg" id="msg" style="color:var(--bad)"></div></div>';
+  if(!isOut&&!inOK)return'<div class="card"><b>Wareneingang</b><label>Passwort</label><input id="pw" type="password" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"><button class="btn" id="unlock">Entsperren</button><div class="msg" id="msg" style="color:var(--bad)"></div></div>';
   return`<div class="card"><b>${type==="ret"?"Rückgabe erfassen":isOut?"Entnahme erfassen":"Wareneingang erfassen"}</b>
   ${isOut?`<div class="two"><div><label>Kennzeichen *</label><select id="bus"><option value="">– Kennzeichen wählen –</option>${[...KENN].sort().map(k=>`<option ${k===outBus?"selected":""}>${k}</option>`).join("")}</select></div><div><label>Fahrer (Name) *</label><input id="who" placeholder="Name" value="${esc(outWho)}"></div></div>`
   :`<div class="mu" style="margin-top:6px">🔓 Entsperrt – mehrere Artikel nacheinander möglich</div>`}
-  ${isOut?"":catSel()}${type==="out"?`<label style="display:flex;align-items:center;gap:10px;color:var(--tx);font-size:15px;margin-top:14px"><input type="checkbox" id="useexp" style="width:22px;height:22px;margin:0;padding:0">Nahe am Verfallsdatum (aus Rückgabe)</label>`:""}<label>Artikel</label>${isOut?`<select id="item"><option value="">– Artikel wählen –</option>${(type==="ret"?[...new Set([...items.map(baseName),...Object.values(PRESETS).flat()])].sort((a,b)=>a.localeCompare(b,"de")):items.filter(i=>s[i]>0&&!i.endsWith(RETSUF))).map(i=>`<option value="${esc(i)}">${esc(i)}${type==="ret"?"":" ("+(s[i]||0)+" "+unitOf(i)+" auf Lager)"}</option>`).join("")}</select>`:`<select id="item">${itemOpts("")}</select><input id="newitem" placeholder="Name des neuen Artikels" autocomplete="off" style="display:none;margin-top:8px">`}
+  ${type==="ret"?`<label>Art der Buchung</label><select id="rkind"><option value="stock" selected>Zurück ins Lager</option><option value="own">🍽️ Eigenbedarf</option><option value="spoil">🗑️ Verfall</option><option value="brk">💥 Bruch/Defekt</option></select><div class="mu" id="khint"></div>`:""}${isOut?"":catSel()}${type==="out"?`<label style="display:flex;align-items:center;gap:10px;color:var(--tx);font-size:15px;margin-top:14px"><input type="checkbox" id="useexp" style="width:22px;height:22px;margin:0;padding:0">Nahe am Verfallsdatum (aus Rückgabe)</label>`:""}<label>Artikel</label>${isOut?`<select id="item"><option value="">– Artikel wählen –</option>${groupedOpts(type==="ret"?[...new Set([...items.map(baseName),...Object.values(PRESETS).flat()])]:items.filter(i=>s[i]>0&&!i.endsWith(RETSUF)),n=>type==="ret"?n:n+" ("+(s[n]||0)+" "+unitOf(n)+" auf Lager)")}</select>`:`<select id="item">${itemOpts("")}</select><input id="newitem" placeholder="Name des neuen Artikels" autocomplete="off" style="display:none;margin-top:8px">`}
   
   <div id="avail" class="mu"></div>
   ${isOut?"":`<label>Eingetragen von (Name) *</label><input id="who" placeholder="Name" value="${esc(inWho)}">`}<div class="two"><div><label>Menge</label><input id="qty" type="number" inputmode="numeric" min="1" placeholder="Anzahl"></div><div><label>Einheit</label><select id="unit">${unitOpts(isOut?"Flaschen":null)}</select></div></div>
-  ${type==="ret"?`<label style="display:flex;align-items:center;gap:10px;color:var(--tx);font-size:15px;margin-top:14px"><input type="checkbox" id="exp" style="width:22px;height:22px;margin:0;padding:0">Nahe am Verfallsdatum (wird separat geführt)</label>`:""}
+  ${type==="ret"?`<label id="expwrap" style="display:flex;align-items:center;gap:10px;color:var(--tx);font-size:15px;margin-top:14px"><input type="checkbox" id="exp" style="width:22px;height:22px;margin:0;padding:0">Nahe am Verfallsdatum (wird separat geführt)</label><div id="notewrap" style="display:none"><label>Bemerkung (optional)</label><input id="note" placeholder="z. B. MHD 20.10., Kasten beschädigt" autocomplete="off"></div>`:""}
   <button class="btn ${type}" id="go">${type==="ret"?"Rückgabe buchen":isOut?"Entnahme buchen":"Eingang buchen"}</button>
   <div class="msg" id="msg">${esc(msg)}</div></div>`;
+}
+function lockCard(t){return'<div class="card"><b>🔒 '+t+' gesperrt</b><div class="mu" style="margin-top:6px">Wird sichtbar, sobald im Reiter „Eingang“ das Passwort eingegeben wurde.</div><button class="btn" id="gotoin">Zum Eingang</button></div>'}
+const STATP=[["all","Gesamter Zeitraum"],["today","Heute"],["7","Letzte 7 Tage"],["30","Letzte 30 Tage"],["month","Dieser Monat"]];
+const sold=i=>i.out-i.ret-i.own-i.spoil-i.brk;
+function statCalc(){
+  let from=0;const d=new Date();
+  if(statP==="today"){d.setHours(0,0,0,0);from=d.getTime()}
+  else if(statP==="7")from=Date.now()-7*864e5;
+  else if(statP==="30")from=Date.now()-30*864e5;
+  else if(statP==="month")from=new Date(d.getFullYear(),d.getMonth(),1).getTime();
+  const G={},list=[];
+  moves.forEach(m=>{if((m.type!=="out"&&m.type!=="ret")||!m.bus||m.statCleared||(m.ts||0)<from)return;if(statB&&m.bus!==statB)return;
+    list.push(m);
+    const g=G[m.bus]||(G[m.bus]={n:{out:0,ret:0,sp:0},who:new Set(),items:{}});
+    if(m.who)g.who.add(m.who);
+    const it=g.items[m.item]||(g.items[m.item]={out:0,ret:0,own:0,spoil:0,brk:0,unit:m.unit||"Flaschen"});
+    const f=m.type==="ret"&&KINDS[m.kind]?m.kind:m.type;
+    if(f==="out"||f==="ret")g.n[f]++;else g.n.sp++;
+    it[f]+=m.qty});
+  list.sort((a,b)=>(a.ts||0)-(b.ts||0));
+  return{G,list,buses:Object.keys(G).sort((a,b)=>a.localeCompare(b,"de")),label:(STATP.find(p=>p[0]===statP)||STATP[0])[1]};
+}
+function vStat(){
+  if(!logOK)return lockCard("Statistik");
+  const S=statCalc(),G=S.G,buses=S.buses;
+  let o='<div class="card"><div class="two"><div><label>Zeitraum</label><select id="statP">'+STATP.map(p=>`<option value="${p[0]}" ${p[0]===statP?"selected":""}>${p[1]}</option>`).join("")+'</select></div><div><label>Fahrzeug</label><select id="statB"><option value="">Alle Fahrzeuge</option>'+[...KENN].sort().map(k=>`<option ${k===statB?"selected":""}>${esc(k)}</option>`).join("")+'</select></div></div>'+
+  '<div class="two" style="margin-top:12px"><button class="btn in" id="xls" style="margin-top:0">📊 Excel</button><button class="btn" id="pdf" style="margin-top:0">📄 PDF</button></div><div class="msg" id="statmsg"></div></div>';
+  const hasAny=moves.some(m=>(m.type==="out"||m.type==="ret")&&m.bus&&!m.statCleared),delBtn=hasAny?'<button class="btn out" id="statreset" style="margin-top:6px">Statistik löschen</button>':"";
+  if(!buses.length)return o+'<div class="card mu">Keine Buchungen im gewählten Zeitraum.</div>'+delBtn;
+  const gr="display:grid;grid-template-columns:1fr 62px 62px 62px;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid var(--bd)";
+  buses.forEach(b=>{const g=G[b],names=Object.keys(g.items).sort((a,c)=>a.localeCompare(c,"de"));
+    o+=`<div class="card"><div style="display:flex;justify-content:space-between;gap:10px"><b style="font-size:18px">${esc(b)}</b><span class="mu">${g.n.out} Entnahmen · ${g.n.ret} Rückgaben${g.n.sp?` · ${g.n.sp} Meldungen`:""}</span></div>`+(g.who.size?`<div class="mu" style="margin-top:2px">Fahrer: ${[...g.who].map(esc).join(", ")}</div>`:"")+
+    `<div style="${gr};font-size:12px;color:var(--mu);font-weight:600;margin-top:8px"><span>Artikel</span><span style="text-align:right">Entnahme</span><span style="text-align:right">Rückgabe</span><span style="text-align:right">Verkauf</span></div>`+
+    names.map(n=>{const i=g.items[n];return`<div style="${gr}"><span>${esc(n)}<div class="mu">${esc(i.unit)}${["own","spoil","brk"].filter(k=>i[k]).map(k=>" · "+KINDS[k][1]+" "+KINDS[k][0]+" "+i[k]).join("")}</div></span><span style="text-align:right" class="out-t">${i.out?"−"+i.out:"–"}</span><span style="text-align:right" class="in-t">${i.ret?"+"+i.ret:"–"}</span><b style="text-align:right">${sold(i)}</b></div>`}).join("")+'</div>'});
+  return o+'<div class="mu" style="padding:0 4px 12px">Verkauf = entnommen − zurückgegeben − Eigenbedarf − Verfall − Bruch/Defekt. Gezählt werden auch Buchungen, die im Verlauf zurückgesetzt wurden.</div>'+delBtn;
+}
+/* ---------- Export: Excel (.xlsx) und PDF, ohne externe Bibliotheken ---------- */
+function crc32(b){let crc=-1;for(let i=0;i<b.length;i++){crc^=b[i];for(let k=0;k<8;k++)crc=(crc>>>1)^(0xEDB88320&-(crc&1))}return(crc^-1)>>>0}
+function zipParts(files){
+  const enc=new TextEncoder(),parts=[],cen=[];let off=0;
+  files.forEach(([name,str])=>{
+    const nb=enc.encode(name),d=enc.encode(str),crc=crc32(d);
+    const lh=new Uint8Array(30+nb.length),v=new DataView(lh.buffer);
+    v.setUint32(0,0x04034b50,true);v.setUint16(4,20,true);v.setUint16(6,0x0800,true);v.setUint16(8,0,true);v.setUint16(10,0,true);v.setUint16(12,0x21,true);
+    v.setUint32(14,crc,true);v.setUint32(18,d.length,true);v.setUint32(22,d.length,true);v.setUint16(26,nb.length,true);v.setUint16(28,0,true);lh.set(nb,30);
+    const ch=new Uint8Array(46+nb.length),c=new DataView(ch.buffer);
+    c.setUint32(0,0x02014b50,true);c.setUint16(4,20,true);c.setUint16(6,20,true);c.setUint16(8,0x0800,true);c.setUint16(10,0,true);c.setUint16(12,0,true);c.setUint16(14,0x21,true);
+    c.setUint32(16,crc,true);c.setUint32(20,d.length,true);c.setUint32(24,d.length,true);c.setUint16(28,nb.length,true);c.setUint32(42,off,true);ch.set(nb,46);
+    parts.push(lh,d);cen.push(ch);off+=lh.length+d.length});
+  const cs=cen.reduce((a,c)=>a+c.length,0),end=new Uint8Array(22),e=new DataView(end.buffer);
+  e.setUint32(0,0x06054b50,true);e.setUint16(8,files.length,true);e.setUint16(10,files.length,true);e.setUint32(12,cs,true);e.setUint32(16,off,true);
+  return[...parts,...cen,end];
+}
+const xe=s=>String(s).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g,"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+function sheetXml(rows,widths){
+  const col=i=>String.fromCharCode(65+i);
+  let x='<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols>'+widths.map((w,i)=>`<col min="${i+1}" max="${i+1}" width="${w}" customWidth="1"/>`).join("")+'</cols><sheetData>';
+  rows.forEach((r,ri)=>{x+=`<row r="${ri+1}">`+r.map((v,ci)=>{const ref=col(ci)+(ri+1),st=ri===0?' s="1"':"";return typeof v==="number"?`<c r="${ref}"${st}><v>${v}</v></c>`:`<c r="${ref}"${st} t="inlineStr"><is><t xml:space="preserve">${xe(v)}</t></is></c>`}).join("")+"</row>"});
+  return x+"</sheetData></worksheet>";
+}
+function xlsxBlob(S){
+  const typ=m=>m.type==="out"?"Entnahme":(KINDS[m.kind]?KINDS[m.kind][0]:"Rückgabe");
+  const r1=[["Fahrzeug","Artikel","Einheit","Entnahme","Rückgabe","Eigenbedarf","Verfall","Bruch/Defekt","Verkauf"]];
+  S.buses.forEach(b=>Object.keys(S.G[b].items).sort((a,c)=>a.localeCompare(c,"de")).forEach(n=>{const i=S.G[b].items[n];r1.push([b,n,i.unit,i.out,i.ret,i.own,i.spoil,i.brk,sold(i)])}));
+  const r2=[["Datum","Uhrzeit","Art","Fahrzeug","Fahrer","Artikel","Menge","Einheit","Nahe am Verfallsdatum","Bemerkung"]];
+  S.list.forEach(m=>{const d=new Date(m.ts||0);r2.push([d.toLocaleDateString("de-DE"),d.toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"}),typ(m),m.bus,m.who||"",m.item,m.qty,m.unit||"Flaschen",m.exp?"ja":"",m.note||""])});
+  const NS='xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"',H='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
+  const files=[
+   ["[Content_Types].xml",H+'<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>'],
+   ["_rels/.rels",H+'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>'],
+   ["xl/workbook.xml",H+'<workbook '+NS+' xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Statistik" sheetId="1" r:id="rId1"/><sheet name="Buchungen" sheetId="2" r:id="rId2"/></sheets></workbook>'],
+   ["xl/_rels/workbook.xml.rels",H+'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>'],
+   ["xl/styles.xml",H+'<styleSheet '+NS+'><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFD9E1F2"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>'],
+   ["xl/worksheets/sheet1.xml",sheetXml(r1,[16,34,12,12,12,13,10,14,10])],
+   ["xl/worksheets/sheet2.xml",sheetXml(r2,[12,10,14,18,16,34,10,12,22,30])]];
+  return new Blob(zipParts(files),{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+}
+const WINC={"–":0x96,"—":0x97,"„":0x84,"“":0x93,"”":0x94,"…":0x85,"€":0x80,"•":0x95};
+function pdfStr(s){let o="";for(const ch of String(s)){let c=ch==="−"?45:(WINC[ch]??ch.charCodeAt(0));if(c>255)c=63;o+=String.fromCharCode(c)}return o.replace(/[\\()]/g,m=>"\\"+m)}
+function pdfBlob(S){
+  const pages=[];let cur,y;
+  const np=()=>{cur=[];pages.push(cur);y=800};
+  const T=(x,yy,s,sz,b)=>cur.push(`BT /${b?"F2":"F1"} ${sz} Tf ${x} ${yy} Td (${pdfStr(s)}) Tj ET`);
+  const LN=yy=>cur.push(`0.5 w 40 ${yy} m 555 ${yy} l S`);
+  const cut=(s,n)=>s.length>n?s.slice(0,n-1)+"…":s;
+  np();T(40,y,"Lagerverwaltung – Statistik",16,1);y-=20;
+  T(40,y,"Zeitraum: "+S.label,9);y-=12;T(40,y,"Fahrzeug: "+(statB||"Alle Fahrzeuge"),9);y-=12;
+  T(40,y,"Erstellt: "+new Date().toLocaleString("de-DE"),9);y-=26;
+  const head=(b,g,cont)=>{T(40,y,b+(cont?" (Fortsetzung)":""),12,1);T(300,y,g.n.out+" Entnahmen · "+g.n.ret+" Rückgaben"+(g.n.sp?" · "+g.n.sp+" Meldungen":""),9);y-=14;
+    if(!cont&&g.who.size){T(40,y,cut("Fahrer: "+[...g.who].join(", "),110),8);y-=13}
+    T(40,y,"Artikel",8,1);T(205,y,"Einheit",8,1);T(250,y,"Entnahme",8,1);T(303,y,"Rückgabe",8,1);T(356,y,"Eigenbed.",8,1);T(409,y,"Verfall",8,1);T(452,y,"Bruch",8,1);T(497,y,"Verkauf",8,1);y-=4;LN(y);y-=12};
+  S.buses.forEach(b=>{const g=S.G[b];if(y<130)np();head(b,g,false);
+    Object.keys(g.items).sort((a,c)=>a.localeCompare(c,"de")).forEach(n=>{
+      if(y<60){np();head(b,g,true)}
+      const i=g.items[n],v=x=>x?String(x):"-";T(40,y,cut(n,34),9);T(205,y,i.unit,9);T(250,y,v(i.out),9);T(303,y,v(i.ret),9);T(356,y,v(i.own),9);T(409,y,v(i.spoil),9);T(452,y,v(i.brk),9);T(497,y,String(sold(i)),9,1);y-=14});
+    y-=16});
+  T(40,y,"Verkauf = entnommen - zurückgegeben - Eigenbedarf - Verfall - Bruch/Defekt.",8);
+  pages.forEach((p,i)=>{cur=p;T(40,28,"Lagerverwaltung",8);T(500,28,"Seite "+(i+1)+"/"+pages.length,8)});
+  const objs=["<< /Type /Catalog /Pages 2 0 R >>","","<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>","<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>"];
+  const kids=[];
+  pages.forEach((p,i)=>{const pid=5+2*i,cid=6+2*i,s=p.join("\n");kids.push(pid+" 0 R");
+    objs[pid-1]=`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents ${cid} 0 R >>`;
+    objs[cid-1]=`<< /Length ${s.length} >>\nstream\n${s}\nendstream`});
+  objs[1]=`<< /Type /Pages /Kids [${kids.join(" ")}] /Count ${pages.length} >>`;
+  let out="%PDF-1.4\n";const offs=[];
+  objs.forEach((o,i)=>{offs.push(out.length);out+=`${i+1} 0 obj\n${o}\nendobj\n`});
+  const xr=out.length;out+=`xref\n0 ${objs.length+1}\n0000000000 65535 f \n`+offs.map(o=>String(o).padStart(10,"0")+" 00000 n \n").join("")+`trailer\n<< /Size ${objs.length+1} /Root 1 0 R >>\nstartxref\n${xr}\n%%EOF`;
+  const u=new Uint8Array(out.length);for(let i=0;i<out.length;i++)u[i]=out.charCodeAt(i)&255;
+  return new Blob([u],{type:"application/pdf"});
+}
+async function saveFile(name,blob){
+  try{const dl=await claude.use("downloads");if(dl){try{await dl.save({filename:name,data:blob});return true}catch(e){if(e&&e.code==="declined")return false;throw e}}}catch(e){if(e&&e.code)throw e}
+  const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();
+  setTimeout(()=>{a.remove();URL.revokeObjectURL(a.href)},1500);return true;
+}
+async function doExport(kind){
+  const S=statCalc(),mm=$("#statmsg"),say=(t,ok)=>{if(mm){mm.style.color=ok?"var(--ok)":"var(--bad)";mm.textContent=t}};
+  if(!S.buses.length)return say("Keine Daten zum Exportieren.");
+  const stamp=new Date().toISOString().slice(0,10);
+  try{const ok=await saveFile("Lager-Statistik_"+stamp+"."+kind,kind==="xlsx"?xlsxBlob(S):pdfBlob(S));say(ok?"✓ Datei erstellt.":"Export abgebrochen.",ok)}
+  catch(e){say("Export fehlgeschlagen: "+((e&&(e.message||e.code))||e))}
 }
 function vLog(){
   if(!logOK)return'<div class="card"><b>🔒 Verlauf gesperrt</b><div class="mu" style="margin-top:6px">Der Verlauf wird sichtbar, sobald im Reiter „Eingang“ das Passwort eingegeben wurde.</div><button class="btn" id="gotoin">Zum Eingang</button></div>';
   const L=moves.filter(m=>m.type!=="base"&&!m.archived);
   if(!L.length)return'<div class="card mu">Noch keine Buchungen.</div>';
-  return'<div class="card tw">'+L.slice(0,200).map(m=>`<div class="row"><div><b class="${m.type==="out"||m.qty<0?"out-t":"in-t"}">${m.type==="out"?"−":m.qty<0?"":"+"}${m.qty}</b> ${esc(m.unit||"Flaschen")} ${esc(m.item)}${m.exp?' <span class="low">⏰ nahe am Verfallsdatum</span>':""}${m.kisten?" ("+m.kisten+(m.kisten>1?" Kästen":" Kasten")+")":""}<div class="mu">${m.type==="out"?esc(m.bus)+" · ":m.type==="ret"?"Rückgabe "+esc(m.bus)+" · ":m.type==="korr"?"Bestandskorrektur · ":"Eingang · "}${esc(m.who||"–")} · ${fmt(m.ts)}</div></div><a href="#" data-del="${m.id}" class="mu" title="Löschen">✕</a></div>`).join("")+'</div><button class="btn out" id="reset">Verlauf zurücksetzen</button>';
+  return'<div class="card tw">'+L.slice(0,200).map(m=>`<div class="row"><div><b class="${KINDS[m.kind]?"":m.type==="out"||m.qty<0?"out-t":"in-t"}" ${KINDS[m.kind]?'style="color:#d97706"':""}>${KINDS[m.kind]?"":m.type==="out"?"−":m.qty<0?"":"+"}${m.qty}</b> ${esc(m.unit||"Flaschen")} ${esc(m.item)}${m.exp?' <span class="low">⏰ nahe am Verfallsdatum</span>':""}${KINDS[m.kind]?' <span style="color:#d97706;font-weight:600">'+KINDS[m.kind][1]+" "+KINDS[m.kind][0]+"</span>":""}${m.kisten?" ("+m.kisten+(m.kisten>1?" Kästen":" Kasten")+")":""}<div class="mu">${m.type==="out"?esc(m.bus)+" · ":m.type==="ret"?(KINDS[m.kind]?"":"Rückgabe ")+esc(m.bus)+" · ":m.type==="korr"?"Bestandskorrektur · ":"Eingang · "}${esc(m.who||"–")} · ${fmt(m.ts)}${m.note?" · „"+esc(m.note)+"“":""}</div></div><a href="#" data-del="${m.id}" class="mu" title="Löschen">✕</a></div>`).join("")+'</div><button class="btn out" id="reset">Verlauf zurücksetzen</button>';
 }
 function openKorr(){
   const o=document.createElement("div");
   o.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;padding:20px;z-index:99;overflow-y:auto";
   const box=document.createElement("div");box.className="card";box.style.cssText="width:100%;max-width:400px;margin:auto";
   o.appendChild(box);document.body.appendChild(o);
-  box.innerHTML='<b>Bestandskorrektur</b><label>Passwort</label><input id="kpw" type="password" autocomplete="off"><div class="msg" id="kmsg" style="color:var(--bad)"></div><div class="two"><button class="btn" id="kno" style="background:var(--mu);margin-top:4px">Abbrechen</button><button class="btn" id="kyes" style="margin-top:4px">Weiter</button></div>';
+  box.innerHTML='<b>Bestandskorrektur</b><label>Passwort</label><input id="kpw" type="password" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"><div class="msg" id="kmsg" style="color:var(--bad)"></div><div class="two"><button class="btn" id="kno" style="background:var(--mu);margin-top:4px">Abbrechen</button><button class="btn" id="kyes" style="margin-top:4px">Weiter</button></div>';
   $("#kpw").focus();$("#kno").onclick=()=>o.remove();
   $("#kyes").onclick=()=>{
-    if($("#kpw").value!=="Alex2"){$("#kmsg").textContent="Falsches Passwort.";return}
+    if($("#kpw").value.trim()!=="Alex2"){$("#kmsg").textContent="Falsches Passwort.";return}
     const s=stock(),keys=Object.keys(s).sort((a,b)=>a.localeCompare(b,"de"));
     box.innerHTML='<b>Bestandskorrektur</b><div class="mu">Neue Anzahl eintragen:</div>'+keys.map((k,i)=>`<div class="row"><span>${esc(k)} <span class="mu">(${unitOf(k)})</span></span><div style="display:flex;align-items:center;gap:12px"><input type="number" inputmode="numeric" min="0" data-k="${i}" value="${s[k]}" style="width:100px"><a href="#" data-x="${i}" title="Artikel löschen" style="color:var(--bad);font-size:24px;line-height:1;text-decoration:none;padding:4px">✕</a></div></div>`).join("")+'<div class="msg" id="kmsg" style="color:var(--bad)"></div><div class="two"><button class="btn" id="kno2" style="background:var(--mu);margin-top:4px">Abbrechen</button><button class="btn in" id="ksave" style="margin-top:4px">Speichern</button></div>';
     $("#kno2").onclick=()=>o.remove();
@@ -165,11 +293,29 @@ function openKorr(){
 function bind(){
   const kb=$("#korr");if(kb)kb.onclick=openKorr;
   const gi=$("#gotoin");if(gi)gi.onclick=()=>{tab="in";msg="";render()};
+  const sp=$("#statP");if(sp)sp.onchange=()=>{statP=sp.value;document.activeElement.blur();render()};
+  const sb=$("#statB");if(sb)sb.onchange=()=>{statB=sb.value;document.activeElement.blur();render()};
+  const sr=$("#statreset");
+  if(sr)sr.onclick=()=>{
+    const o=document.createElement("div");
+    o.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;padding:20px;z-index:99";
+    o.innerHTML='<div class="card" style="width:100%;max-width:360px;margin:0"><b>Statistik löschen</b><div class="mu" style="margin-top:6px">Alle Daten der Statistik (alle Fahrzeuge, alle Zeiträume) werden gelöscht. Lagerbestand und Verlauf bleiben unverändert. Das kann nicht rückgängig gemacht werden.</div><label>Passwort</label><input id="spw" type="password" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"><div class="msg" id="smsg" style="color:var(--bad)"></div><div class="two"><button class="btn" id="sno" style="background:var(--mu);margin-top:4px">Abbrechen</button><button class="btn out" id="syes" style="margin-top:4px">Löschen</button></div></div>';
+    document.body.appendChild(o);$("#spw").focus();
+    $("#sno").onclick=()=>o.remove();
+    $("#syes").onclick=async()=>{
+      if($("#spw").value.trim()!=="Alex2"){$("#smsg").textContent="Falsches Passwort.";return}
+      try{await Promise.all(moves.filter(m=>(m.type==="out"||m.type==="ret")&&!m.statCleared).map(m=>store.clr(m.id)))}catch(e){$("#smsg").textContent="Keine Berechtigung.";return}
+      o.remove();render();
+    };
+  };
+  const xb=$("#xls");if(xb)xb.onclick=()=>doExport("xlsx");const pb=$("#pdf");if(pb)pb.onclick=()=>doExport("pdf");
   const ue=$("#useexp");if(ue)ue.onchange=()=>{$("#item").innerHTML=optsFor(ue.checked);$("#avail").textContent="";$("#unit").innerHTML=unitOpts("Flaschen")};
-  const ul=$("#unlock");if(ul){const t=()=>{if($("#pw").value===PW){inOK=true;logOK=true;msg="";document.activeElement.blur();render()}else{$("#msg").textContent="Falsches Passwort."}};ul.onclick=t;$("#pw").onkeydown=e=>{if(e.key==="Enter")t()}}
+  const ul=$("#unlock");if(ul){const t=()=>{if($("#pw").value.trim()===PW){inOK=true;logOK=true;msg="";document.activeElement.blur();render()}else{$("#msg").textContent="Falsches Passwort."}};ul.onclick=t;$("#pw").onkeydown=e=>{if(e.key==="Enter")t()}}
   
   const it=$("#item");
   if(it)it.oninput=it.onchange=()=>{const s=stock(),u=unitOf(it.value);$("#avail").textContent=tab==="ret"?"":it.value in s?"Aktuell im Lager: "+s[it.value]+" "+u:"";if(tab!=="in")$("#unit").innerHTML=unitOpts(UNIT_ONLY[it.value]||(it.value in s?u:"Flaschen"));if(tab==="in"){$("#unit").innerHTML=unitOpts(UNIT_ONLY[it.value]||null);const c=catOf(it.value)||presetCat(it.value);if(c)$("#cat").value=c}};
+  const rk=$("#rkind");
+  if(rk)rk.onchange=()=>{const K=KINDS[rk.value],sh=rk.value==="spoil"||rk.value==="brk";$("#notewrap").style.display=sh?"block":"none";if(!sh)$("#note").value="";$("#expwrap").style.display=K?"none":"flex";if(K)$("#exp").checked=false;$("#go").textContent=K?K[0]+" buchen":"Rückgabe buchen";$("#khint").textContent=K?"Ändert den Lagerbestand nicht – wird nur im Verlauf und in der Statistik gekennzeichnet.":""};
   const go=$("#go");
   const ct=$("#cat");
   if(ct&&it){ct.onchange=()=>{it.innerHTML=itemOpts(ct.value);$("#unit").innerHTML=unitOpts(null);$("#newitem").style.display="none";$("#avail").textContent=""};
@@ -178,12 +324,12 @@ function bind(){
   if(rs)rs.onclick=()=>{
     const o=document.createElement("div");
     o.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;padding:20px;z-index:99";
-    o.innerHTML='<div class="card" style="width:100%;max-width:360px;margin:0"><b>Verlauf zurücksetzen</b><div class="mu" style="margin-top:6px">Alle Buchungen im Verlauf werden gelöscht. Der aktuelle Bestand bleibt erhalten. Das kann nicht rückgängig gemacht werden.</div><label>Passwort</label><input id="rpw" type="password" autocomplete="off"><div class="msg" id="rmsg" style="color:var(--bad)"></div><div class="two"><button class="btn" id="rno" style="background:var(--mu);margin-top:4px">Abbrechen</button><button class="btn out" id="ryes" style="margin-top:4px">Zurücksetzen</button></div></div>';
+    o.innerHTML='<div class="card" style="width:100%;max-width:360px;margin:0"><b>Verlauf zurücksetzen</b><div class="mu" style="margin-top:6px">Alle Buchungen im Verlauf werden gelöscht. Der aktuelle Bestand bleibt erhalten. Das kann nicht rückgängig gemacht werden.</div><label>Passwort</label><input id="rpw" type="password" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"><div class="msg" id="rmsg" style="color:var(--bad)"></div><div class="two"><button class="btn" id="rno" style="background:var(--mu);margin-top:4px">Abbrechen</button><button class="btn out" id="ryes" style="margin-top:4px">Zurücksetzen</button></div></div>';
     document.body.appendChild(o);
     $("#rpw").focus();
     $("#rno").onclick=()=>o.remove();
     $("#ryes").onclick=async()=>{
-      if($("#rpw").value!=="Alex2"){$("#rmsg").textContent="Falsches Passwort.";return}
+      if($("#rpw").value.trim()!=="Alex2"){$("#rmsg").textContent="Falsches Passwort.";return}
       
       try{await Promise.all(moves.filter(m=>!m.archived).map(m=>store.arch(m.id)))}catch(e){$("#rmsg").textContent="Keine Berechtigung.";return}
       o.remove();render();
@@ -207,9 +353,9 @@ function bind(){
       if(qty>s[item])return err("Nur "+s[item]+" auf Lager.");
       
     }
-    const m={type,item,qty,unit:base,who,ts:Date.now()};if(type==="in")m.cat=cat;if(f>1)m.kisten=n;if(type!=="in")m.bus=$("#bus").value.trim();if(type==="ret"&&$("#exp").checked)m.exp=true;if(type==="ret"&&!catOf(item)&&presetCat(item))m.cat=presetCat(item);
+    const m={type,item,qty,unit:base,who,ts:Date.now()};if(type==="in")m.cat=cat;if(f>1)m.kisten=n;if(type!=="in")m.bus=$("#bus").value.trim();if(type==="ret"){const kd=$("#rkind").value;if(KINDS[kd])m.kind=kd;else if($("#exp").checked)m.exp=true;const nt=$("#note").value.trim();if(nt)m.note=nt}if(type==="ret"&&!catOf(item)&&presetCat(item))m.cat=presetCat(item);
     go.disabled=true;if(type==="in")inWho=who;if(type!=="in"){outBus=$("#bus").value.trim();outWho=who}
-    try{await store.add(m);msg=(type==="out"?"✓ Entnahme gebucht: ":type==="ret"?"✓ Rückgabe gebucht: ":"✓ Eingang gebucht: ")+qty+" "+base+" "+item;if(!window._db)return;}
+    try{await store.add(m);msg=(type==="out"?"✓ Entnahme gebucht: ":type==="ret"?(KINDS[m.kind]?"✓ "+KINDS[m.kind][0]+" gebucht: ":"✓ Rückgabe gebucht: "):"✓ Eingang gebucht: ")+qty+" "+base+" "+item;}
     catch(e){go.disabled=false;return err("Speichern fehlgeschlagen (fehlende Berechtigung?).")}
     tab=tab;render();
   };
